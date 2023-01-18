@@ -2,7 +2,7 @@ import requests
 import json
 
 
-api_token_file = './api_tokens.json'
+api_token_file = '/phi_home/cl3720/phi/eMERGE/eIV-recruitement-support-redcap/test/test_api_tokens.json'
 with open(api_token_file,'r') as f:
     api_conf = json.load(f)
 
