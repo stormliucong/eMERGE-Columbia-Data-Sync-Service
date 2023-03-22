@@ -15,9 +15,9 @@ if __name__ == "__main__":
         # Setup logging
         error_handler = ErrorHandler(logging.WARNING)
         logger = logging.getLogger()
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel(logging.INFO)
         fh = logging.handlers.RotatingFileHandler('gira_cde.log', maxBytes=10000000, backupCount=10)
-        fh.setLevel(logging.DEBUG)
+        fh.setLevel(logging.INFO)
         ch = logging.StreamHandler()
         ch.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s')
