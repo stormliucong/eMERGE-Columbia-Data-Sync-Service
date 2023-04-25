@@ -2,7 +2,7 @@ import requests
 import json
 
 
-api_token_file = '/phi_home/cl3720/phi/eMERGE/eIV-recruitement-support-redcap/test/test_api_tokens.json'
+api_token_file = './api_tokens.json'
 with open(api_token_file,'r') as f:
     api_conf = json.load(f)
 
@@ -88,6 +88,7 @@ if 'clone' not in r.json()['project_title']: # avoid mistakely update the projec
     }
     r = requests.post(cu_local_endpoint,data=data)
     print('HTTP Status: ' + str(r.status_code))
-    print('HTTP Status: ' + r.content.decode('utf-8'))
+    print('Number of fields: ' + r.content.decode('utf-8'))
     # HTTP Status: {"error":"This method cannot be used while the project is in Production status."}
+    # Move Back to Development status.
 

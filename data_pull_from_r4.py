@@ -42,16 +42,20 @@ def export_data_from_redcap(api_key, api_endpoint):
     }
     flag = 1
     while(flag > 0 and flag < 5):
-        r = requests.post(api_endpoint,data=data)
-        if r.status_code == 200:
-            logging.info('HTTP Status: ' + str(r.status_code))
-            data = r.json()
-            return data
-        else:
-            logging.error('Error occured in exporting data from ' + api_endpoint)
-            logging.error('HTTP Status: ' + str(r.status_code))
-            logging.error(r.content)
-            flag = flag + 1
+        try:
+            r = requests.post(api_endpoint,data=data)
+            if r.status_code == 200:
+                logging.info('HTTP Status: ' + str(r.status_code))
+                data = r.json()
+                return data
+            else:
+                logging.error('Error occured in exporting data from ' + api_endpoint)
+                logging.error('HTTP Status: ' + str(r.status_code))
+                logging.error(r.content)
+                flag = flag + 1
+        except Exception as e:
+            logging.error('Error occured in exporting survey queue link. ' + str(e))
+            flag = 5
 
 def read_accepted_fields(local_data):
     local_data_df = pd.DataFrame(local_data)
@@ -70,16 +74,21 @@ def export_survey_queue_link(api_key, api_endpoint,record_id):
     }
     flag = 1
     while(flag > 0 and flag < 5):
-        r = requests.post(api_endpoint,data=data)
-        if r.status_code == 200:
-            flag = 0
-            return_url = r.content.decode("utf-8") 
-            return return_url
-        else:
-            logging.error('Error occured in exporting survey queue link.')
-            logging.error('HTTP Status: ' + str(r.status_code) + '. R4 record_id: ' + record_id)
-            logging.error(r.content)
-            flag = flag + 1
+        try:
+            r = requests.post(api_endpoint,data=data)
+            if r.status_code == 200:
+                flag = 0
+                return_url = r.content.decode("utf-8") 
+                return return_url
+            else:
+                logging.error('Error occured in exporting survey queue link.')
+                logging.error('HTTP Status: ' + str(r.status_code) + '. R4 record_id: ' + record_id)
+                logging.error(r.content)
+                flag = flag + 1
+        except Exception as e:
+            logging.error('Error occured in exporting survey queue link. ' + str(e))
+            logging.error('R4 record_id: ' + record_id)
+            flag = 5
     return ""
     
     
@@ -119,7 +128,7 @@ def add_cuimc_id(r4_record,local_data_df, cuimc_id_latest, current_mapping):
                 current_mapping[record_id] = cuimc_id
                 r4_yn = None
             elif not empty_name_flag: # a valid r4 record with non empty name and dob.
-                if int(age_of_interest) > 18: # mapping for adult
+                if int(age_of_interest) >= 18: # mapping for adult
                     subset_df = local_data_df
                     # patch 6/9 if there is a child name in local record assume this is for child recruitment.
                     # patch 7/8 require a legal name (not empty string, digit, '.')
@@ -201,9 +210,16 @@ def clean_record(r4_record):
         if r4_record['r4_yn'] is None:
             del r4_record['r4_yn']
     # patch 3/30 delete redcap newly added 'survey_queue_link' field not existing in the local redcap
-    del r4_record['survey_queue_link']
+    if 'survey_queue_link' in r4_record.keys():
+        del r4_record['survey_queue_link']
     # patch 5/19 delete redcap newly added 'your_or_your_childs_3' field not existing in the local redcap
-    del r4_record['your_or_your_childs_3']
+    if 'your_or_your_childs_3' in r4_record.keys():
+        del r4_record['your_or_your_childs_3']
+    # patch 04/25/23 delete an related links.
+    if 'any_purpose_except_for_the_emerge_study___2' in r4_record.keys():
+        del r4_record['any_purpose_except_for_the_emerge_study___2']
+    if 'data_and_samples_after_the_study_is_over___2' in r4_record.keys():
+        del r4_record['data_and_samples_after_the_study_is_over___2']
     return r4_record
 
 def push_data_to_local(api_key_local, cu_local_endpoint, r4_record):
@@ -222,16 +238,21 @@ def push_data_to_local(api_key_local, cu_local_endpoint, r4_record):
         'returnFormat': 'json'
     }
     flag = 1
-    while(flag > 0 and flag < 5):
-        r = requests.post(cu_local_endpoint,data=data)
-        if r.status_code == 200:
-            logging.info('HTTP Status: ' + str(r.status_code) + '. R4 record_id: ' + record_id)
-            flag = 0
-        else:
-            logging.error('Error occured in importing data to ' + cu_local_endpoint)
-            logging.error('HTTP Status: ' + str(r.status_code) + '. R4 record_id: ' + record_id)
-            logging.error(r.content)
-            flag = flag + 1
+    while(flag > 0 and flag < 3):
+        try:
+            r = requests.post(cu_local_endpoint,data=data)
+            if r.status_code == 200:
+                logging.info('HTTP Status: ' + str(r.status_code) + '. R4 record_id: ' + record_id)
+                flag = 0
+            else:
+                logging.error('Error occured in importing data to ' + cu_local_endpoint)
+                logging.error('HTTP Status: ' + str(r.status_code) + '. R4 record_id: ' + record_id)
+                logging.error(r.content)
+                flag = flag + 1
+        except Exception as e:
+            logging.error('Error occured in importing data to ' + cu_local_endpoint + '. ' + str(e))
+            logging.error('R4 record_id: ' + record_id)
+            flag = 3
 
 def update_local(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, current_time):
     logging.info("update local redcap...")
