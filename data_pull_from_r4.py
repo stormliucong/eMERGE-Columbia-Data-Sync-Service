@@ -6,10 +6,14 @@ import pandas as pd
 import logging
 import argparse
 
-def read_ignore_fields(ignore_file):
+def read_ignore_fields(ignore_file='./ignore_R4_field.json'):
     logging.info("reading ignore fields...")
+    # read json
     with open(ignore_file,'r') as f:
-        ignore_fields = [l.strip for l in f.readlines()]
+        ignore_fields = json.load(f)
+        # iterative dictionary 
+        ignore_fields = [k for k, v in ignore_fields.items() if str(v) == '1']
+        logging.info("ignore fields: " + '\n'.join(ignore_fields))
     return ignore_fields    
 
 def read_api_config(config_file):
@@ -199,7 +203,7 @@ def indexing_local_data(local_data):
         local_data_df = pd.DataFrame()
     return local_data_df, cuimc_id_latest
 
-def clean_record(r4_record):
+def clean_record(r4_record, ignore_fields):
     # check is it a redcap_repeat_instrument
     if r4_record['redcap_repeat_instance'] != '':
         del r4_record['record_id']
@@ -209,22 +213,14 @@ def clean_record(r4_record):
     else:
         if r4_record['r4_yn'] is None:
             del r4_record['r4_yn']
-    # patch 3/30 delete redcap newly added 'survey_queue_link' field not existing in the local redcap
-    if 'survey_queue_link' in r4_record.keys():
-        del r4_record['survey_queue_link']
-    # patch 5/19 delete redcap newly added 'your_or_your_childs_3' field not existing in the local redcap
-    if 'your_or_your_childs_3' in r4_record.keys():
-        del r4_record['your_or_your_childs_3']
-    # patch 04/25/23 delete an related links.
-    if 'any_purpose_except_for_the_emerge_study___2' in r4_record.keys():
-        del r4_record['any_purpose_except_for_the_emerge_study___2']
-    if 'data_and_samples_after_the_study_is_over___2' in r4_record.keys():
-        del r4_record['data_and_samples_after_the_study_is_over___2']
+    for field in ignore_fields:
+        if field in r4_record.keys():
+            del r4_record[field]
     return r4_record
 
-def push_data_to_local(api_key_local, cu_local_endpoint, r4_record):
+def push_data_to_local(api_key_local, cu_local_endpoint, r4_record, ignore_fields):
     record_id = r4_record['record_id']
-    r4_record = clean_record(r4_record)
+    r4_record = clean_record(r4_record, ignore_fields)
     data = {
         'token': api_key_local,
         'content': 'record',
@@ -254,7 +250,7 @@ def push_data_to_local(api_key_local, cu_local_endpoint, r4_record):
             logging.error('R4 record_id: ' + record_id)
             flag = 3
 
-def update_local(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, current_time):
+def update_local(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, ignore_fields, current_time):
     logging.info("update local redcap...")
     current_mapping = {}
     for r4_record in r4_data:
@@ -265,17 +261,19 @@ def update_local(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, l
             r4_record['r4_yn'] = r4_yn # new record indicator
             r4_record['r4_survey_queue_link'] = return_url
             r4_record['last_r4_pull'] = current_time
-            push_data_to_local(api_key_local,cu_local_endpoint,r4_record)
+            push_data_to_local(api_key_local,cu_local_endpoint,r4_record, ignore_fields)
             
 if __name__ == "__main__":
     # log_file = '/phi_home/cl3720/phi/eMERGE/eIV-recruitement-support-redcap/data-pull.log'
     # token_file = '/phi_home/cl3720/phi/eMERGE/eIV-recruitement-support-redcap/api_tokens.json'
     parser = argparse.ArgumentParser()
     parser.add_argument('--log', type=str, required=True, help="file to write log",)    
-    parser.add_argument('--token', type=str, required=True, help='json file with api tokens')    
+    parser.add_argument('--token', type=str, required=True, help='json file with api tokens')   
+    parser.add_argument('--ignore', type=str, required=True, help="json file with ignored R4 fields")    
     args = parser.parse_args()
     log_file = args.log
     token_file = args.token
+    ignore_file = args.ignore
     
 
     logging.basicConfig(filename=log_file, level=logging.INFO)
@@ -285,9 +283,10 @@ if __name__ == "__main__":
     logging.info("Current Time =" +  dt_string)
 
     api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint = read_api_config(config_file = token_file)
+    ignore_fields = read_ignore_fields(ignore_file = ignore_file)
     local_data = export_data_from_redcap(api_key_local,cu_local_endpoint)
     r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint)
     if r4_data != []:
         local_data_df, cuimc_id_latest = indexing_local_data(local_data)
-        update_local(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, dt_string)
+        update_local(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, ignore_fields, dt_string)
     

@@ -1,8 +1,17 @@
 import requests
 import json
+import argparse # for command line arguments
 
 
-api_token_file = './api_tokens.json'
+# read api tokens from json file.
+argparser = argparse.ArgumentParser()
+argparser.add_argument('--api_token_file', help='path to api token file', required=False)
+args = argparser.parse_args()
+if args.api_token_file:
+    api_token_file = args.api_token_file
+else:
+    api_token_file = './api_tokens.json'
+
 with open(api_token_file,'r') as f:
     api_conf = json.load(f)
 
@@ -76,19 +85,18 @@ r = requests.post(cu_local_endpoint,data=data)
 print('HTTP Status: ' + str(r.status_code))
 print(r.json())
 
-if 'clone' not in r.json()['project_title']: # avoid mistakely update the project.
-    # update local data dictionary
-    # IMPORTANT: need to re-arrange the 
-    data = {
-        'token': api_key_local,
-        'content': 'metadata',
-        'format': 'json',
-        'returnFormat': 'json',
-        'data': json.dumps(new_json)
-    }
-    r = requests.post(cu_local_endpoint,data=data)
-    print('HTTP Status: ' + str(r.status_code))
-    print('Number of fields: ' + r.content.decode('utf-8'))
-    # HTTP Status: {"error":"This method cannot be used while the project is in Production status."}
-    # Move Back to Development status.
+# update local data dictionary
+# IMPORTANT: need to re-arrange the 
+data = {
+    'token': api_key_local,
+    'content': 'metadata',
+    'format': 'json',
+    'returnFormat': 'json',
+    'data': json.dumps(new_json)
+}
+r = requests.post(cu_local_endpoint,data=data)
+print('HTTP Status: ' + str(r.status_code))
+print('Number of fields: ' + r.content.decode('utf-8'))
+# HTTP Status: {"error":"This method cannot be used while the project is in Production status."}
+# Move Back to Development status.
 

@@ -42,8 +42,11 @@
     * obtain new API tokens and change `api_tokens.json` accordingly.
 
 4. Use `project_setup.py` to dump the dictionary from both R4 and local redcap projects, and then load into the local redcap project created in **3**.
-    * fixed the conflicts by renaming fields and instrument.
-    * enable on repeated instument (GIRA, Mono, BROAD)
+    - This program has to be reexcuted everytime there is a R4 level data field change.
+    - In case there is an error like `HTTP Status: {"error":"This method cannot be used while the project is in Production status."}`, move Back to Development status.
+    - Due to constant change in R4, we decided to ignore some of those fields (reduce the number of times required to reset project)
+
+
 5. Modify `data_pull_from_r4.py` to pull R4 data periodically into local Redcap
     - `cumc_id` will be created by adding 1 into the current largest number in local redcap. Numbers larger than `10000` are reserved for those Epic imported records.
     - Pull R4 data and match local data by 
@@ -54,6 +57,7 @@
         5. If can not find a match in local data, create a new CUIMC_ID incremented. 
     ![workflow](./redcap_id_match_diagram.png)
     - Also pull R4 surveyQueueLink via API for each record and store in [r4_survey_queue_link]
+    - `ignore_R4_fields.json` file is used to ignore the recent R4 update.
     - set up crob job for daily pull `cron_job.sh`. An example is showed below.
         ```sh
         # m h  dom mon dow   command
