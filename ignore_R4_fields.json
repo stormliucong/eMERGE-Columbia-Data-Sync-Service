@@ -6,5 +6,7 @@
     "q1_cchmc" : 1,
     "q2_cchmc" : 1,
     "q1_cchmc_pp" : 1, 
-    "q2_cchmc_pp": 1
+    "q2_cchmc_pp": 1,
+    "boadicea_pedigree_string": 1,
+    "module_boadicea_errors": 1
 }
