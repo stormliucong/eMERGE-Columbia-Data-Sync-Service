@@ -28,14 +28,33 @@ def read_api_config(config_file):
     r4_api_endpoint = api_conf['r4_api_endpoint'] # R4 api endpoint
     return api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint
 
-def export_data_from_redcap(api_key, api_endpoint):
+def export_data_from_redcap(api_key, api_endpoint, id_only):
     logging.info("export data from " + api_endpoint)
-    data = {
+    if id_only:
+        data = {
         'token': api_key,
         'content': 'record',
         'action': 'export',
         'format': 'json',
         'type': 'flat',
+        'fields[0]': 'last_local',
+        'fields[1]': 'first_local',
+        'fields[2]': 'dob',
+        'fields[3]': 'last_child',
+        'fields[4]': 'child_first',
+        'fields[5]': 'dob_child',
+        'fields[6]': 'mrn',
+        'fields[7]': 'cuimc_id',
+        'fields[8]': 'cuimc_empi',
+        'fields[9]': 'last_name',
+        'fields[10]': 'first_name',
+        'fields[11]': 'date_of_birth',
+        'fields[12]': 'last_name_child',
+        'fields[13]': 'first_name_child',
+        'fields[14]': 'date_of_birth_child',
+        'fields[15]': 'participant_lab_id',
+        'fields[16]': 'age',
+        'fields[17]': 'record_id',
         'csvDelimiter': '',
         'rawOrLabel': 'raw',
         'rawOrLabelHeaders': 'raw',
@@ -44,6 +63,21 @@ def export_data_from_redcap(api_key, api_endpoint):
         'exportDataAccessGroups': 'false',
         'returnFormat': 'json'
     }
+    else:
+        data = {
+            'token': api_key,
+            'content': 'record',
+            'action': 'export',
+            'format': 'json',
+            'type': 'flat',
+            'csvDelimiter': '',
+            'rawOrLabel': 'raw',
+            'rawOrLabelHeaders': 'raw',
+            'exportCheckboxLabel': 'false',
+            'exportSurveyFields': 'false',
+            'exportDataAccessGroups': 'false',
+            'returnFormat': 'json'
+        }
     flag = 1
     while(flag > 0 and flag < 5):
         try:
@@ -58,7 +92,7 @@ def export_data_from_redcap(api_key, api_endpoint):
                 logging.error(r.content)
                 flag = flag + 1
         except Exception as e:
-            logging.error('Error occured in exporting survey queue link. ' + str(e))
+            logging.error('Error occured in exporting data. ' + str(e))
             flag = 5
 
 def read_accepted_fields(local_data):
@@ -94,9 +128,7 @@ def export_survey_queue_link(api_key, api_endpoint,record_id):
             logging.error('R4 record_id: ' + record_id)
             flag = 5
     return ""
-    
-    
-    
+     
 
 def add_cuimc_id(r4_record,local_data_df, cuimc_id_latest, current_mapping):
     record_id = r4_record['record_id'] 
@@ -218,9 +250,8 @@ def clean_record(r4_record, ignore_fields):
             del r4_record[field]
     return r4_record
 
-def push_data_to_local(api_key_local, cu_local_endpoint, r4_record, ignore_fields):
-    record_id = r4_record['record_id']
-    r4_record = clean_record(r4_record, ignore_fields)
+def push_data_to_local(api_key_local, cu_local_endpoint, push_to_local_list):
+    logging.info('Push to local REDCap...')
     data = {
         'token': api_key_local,
         'content': 'record',
@@ -229,31 +260,30 @@ def push_data_to_local(api_key_local, cu_local_endpoint, r4_record, ignore_field
         'type': 'flat',
         'overwriteBehavior': 'overwrite',
         'forceAutoNumber': 'false',
-        'data': json.dumps([r4_record]),
+        'data': json.dumps(push_to_local_list),
         'returnContent': 'count',
         'returnFormat': 'json'
     }
     flag = 1
     while(flag > 0 and flag < 3):
-        try:
-            r = requests.post(cu_local_endpoint,data=data)
-            if r.status_code == 200:
-                logging.info('HTTP Status: ' + str(r.status_code) + '. R4 record_id: ' + record_id)
-                flag = 0
-            else:
-                logging.error('Error occured in importing data to ' + cu_local_endpoint)
-                logging.error('HTTP Status: ' + str(r.status_code) + '. R4 record_id: ' + record_id)
-                logging.error(r.content)
-                flag = flag + 1
-        except Exception as e:
-            logging.error('Error occured in importing data to ' + cu_local_endpoint + '. ' + str(e))
-            logging.error('R4 record_id: ' + record_id)
-            flag = 3
+        
+        r = requests.post(cu_local_endpoint,data=data)
+        if r.status_code == 200:
+            logging.info('HTTP Status: ' + str(r.status_code))
+            flag = 0
+        else:
+            logging.error('Error occured in importing data to ' + cu_local_endpoint)
+            logging.error('HTTP Status: ' + str(r.status_code))
+            logging.error(r.content)
+            flag = flag + 1
 
-def update_local(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, ignore_fields, current_time):
+def prepare_local_list(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, ignore_fields, current_time):
     logging.info("update local redcap...")
     current_mapping = {}
+    push_to_local_list = []
     for r4_record in r4_data:
+        # Sequentially loop over r4_data, check for duplication and add cuimc ids (local record id)
+        # This step takes a lot of time. Optimization should be considered.
         cuimc_id, cuimc_id_latest, r4_yn, current_mapping = add_cuimc_id(r4_record,local_data_df, cuimc_id_latest, current_mapping)
         return_url = export_survey_queue_link(api_key=api_key_r4,api_endpoint=r4_api_endpoint,record_id=r4_record['record_id'])
         if cuimc_id is not None:
@@ -261,7 +291,9 @@ def update_local(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, l
             r4_record['r4_yn'] = r4_yn # new record indicator
             r4_record['r4_survey_queue_link'] = return_url
             r4_record['last_r4_pull'] = current_time
-            push_data_to_local(api_key_local,cu_local_endpoint,r4_record, ignore_fields)
+            r4_record = clean_record(r4_record, ignore_fields)
+            push_to_local_list.append(r4_record)
+    return push_to_local_list
             
 if __name__ == "__main__":
     # log_file = '/phi_home/cl3720/phi/eMERGE/eIV-recruitement-support-redcap/data-pull.log'
@@ -284,9 +316,9 @@ if __name__ == "__main__":
 
     api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint = read_api_config(config_file = token_file)
     ignore_fields = read_ignore_fields(ignore_file = ignore_file)
-    local_data = export_data_from_redcap(api_key_local,cu_local_endpoint)
-    r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint)
+    local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)
+    r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False)
     if r4_data != []:
         local_data_df, cuimc_id_latest = indexing_local_data(local_data)
-        update_local(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, ignore_fields, dt_string)
-    
+        push_to_local_list = prepare_local_list(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, ignore_fields, dt_string)
+        push_data_to_local(push_to_local_list)
