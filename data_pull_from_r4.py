@@ -321,4 +321,4 @@ if __name__ == "__main__":
     if r4_data != []:
         local_data_df, cuimc_id_latest = indexing_local_data(local_data)
         push_to_local_list = prepare_local_list(api_key_local,api_key_r4, cu_local_endpoint, r4_api_endpoint, local_data_df, r4_data, cuimc_id_latest, ignore_fields, dt_string)
-        push_data_to_local(push_to_local_list)
+        push_data_to_local(api_key_local, cu_local_endpoint, push_to_local_list)
