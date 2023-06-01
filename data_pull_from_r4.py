@@ -343,6 +343,8 @@ if __name__ == "__main__":
     # if log file is not provided, use the default log file
     if args.log is None:
         log_file = './data_pull_from_r4.log'
+    else:
+        log_file = args.log
     
     # set up logging.
     logging.basicConfig(filename=log_file, format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
