@@ -58,6 +58,8 @@
     ![workflow](./redcap_id_match_diagram.png)
     - Also pull R4 surveyQueueLink via API for each record and store in [r4_survey_queue_link]
     - `ignore_R4_fields.json` file is used to ignore the recent R4 update.
+    - read and write functions are vectorized to speed up the process
+        - It should take less than 15 minutes to complete the data pull for 4000 records.
     - set up crob job for daily pull `cron_job.sh`. An example is showed below.
         ```sh
         # m h  dom mon dow   command
@@ -70,3 +72,4 @@
     - data fetch will only trigger the alert once.
     - In addition, if you want to send out email via a valid SMTP server, please see [redcap_send_out_email.md](./redcap_send_out_email.md) for more details.
 
+6. Execute `extract_id_mapping.py` to check the wrongfully mapped IDs.

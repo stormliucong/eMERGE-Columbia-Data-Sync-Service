@@ -5,3 +5,4 @@
 *api_tokens.json*
 .vscode/
 *nohup*
+.venv/

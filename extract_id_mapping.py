@@ -6,22 +6,7 @@ import pandas as pd
 import logging
 import argparse
 import numpy as np
-
-def read_ignore_fields(ignore_file: str) -> list:
-    '''
-    Read ignore fields from ignore_R4_fields.json
-    Input: ignore_file: path to ignore_R4_fields.json
-    Output: ignore_fields: a list of fields to be ignored
-    '''
-    logging.info("Reading ignore fields...")
-    # read json
-    with open(ignore_file,'r') as f:
-        ignore_fields = json.load(f)
-        # iterative dictionary 
-        ignore_fields = [k for k, v in ignore_fields.items() if str(v) == '1']
-        logging.info("Ignore fields: " + ','.join(ignore_fields))
-    return ignore_fields    
-
+   
 def read_api_config(config_file: str = './api_tokens.json') -> tuple:
     '''
     Read api tokens and endpoint url from api_config.json
@@ -42,7 +27,7 @@ def read_api_config(config_file: str = './api_tokens.json') -> tuple:
     r4_api_endpoint = api_conf['r4_api_endpoint'] # R4 api endpoint
     return api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint
 
-def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = False) -> list:
+def export_data_from_redcap(api_key : str, api_endpoint : str, is_local_record : bool = False) -> list:
     '''
     Export data from REDCap using API
     Input: api_key: API token
@@ -51,7 +36,7 @@ def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = 
     Output: data: a json object containing all the data from REDCap
     '''
     logging.info(f"Exporting data from {api_endpoint}...")
-    if id_only:
+    if is_local_record:
         data = {
         'token': api_key,
         'content': 'record',
@@ -86,19 +71,29 @@ def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = 
     }
     else:
         data = {
-            'token': api_key,
-            'content': 'record',
-            'action': 'export',
-            'format': 'json',
-            'type': 'flat',
-            'csvDelimiter': '',
-            'rawOrLabel': 'raw',
-            'rawOrLabelHeaders': 'raw',
-            'exportCheckboxLabel': 'false',
-            'exportSurveyFields': 'false',
-            'exportDataAccessGroups': 'false',
-            'returnFormat': 'json'
-        }
+        'token': api_key,
+        'content': 'record',
+        'action': 'export',
+        'format': 'json',
+        'type': 'flat',
+        'fields[0]': 'first_name',
+        'fields[1]': 'last_name',
+        'fields[2]': 'date_of_birth',
+        'fields[3]': 'age',
+        'fields[4]': 'first_name_child',
+        'fields[5]': 'last_name_child',
+        'fields[6]': 'date_of_birth_child',
+        'fields[7]': 'participant_lab_id',
+        'fields[8]': 'last_update_timestamp',
+        'fields[9]': 'record_id',
+        'csvDelimiter': '',
+        'rawOrLabel': 'raw',
+        'rawOrLabelHeaders': 'raw',
+        'exportCheckboxLabel': 'false',
+        'exportSurveyFields': 'false',
+        'exportDataAccessGroups': 'false',
+        'returnFormat': 'json'
+    }
     flag = 1
     while(flag > 0 and flag < 5):
         try:
@@ -116,42 +111,7 @@ def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = 
             logging.error('Error occured in exporting data. ' + str(e))
             flag = 5
     return {}
-
-def export_survey_queue_link(record_id : str, api_key : str, api_endpoint: str) -> str:
-    '''
-    Export survey queue link from REDCap using API
-    Input: record_id: the record id of the participant
-           api_key: API token
-           api_endpoint: api endpoint url
-    Output: return_url: a json object containing surveyQueueLink from REDCap
-    '''
-    data = {
-        'token': api_key,
-        'content': 'surveyQueueLink',
-        'action': 'export',
-        'format': 'json',
-        'returnFormat': 'json',
-        'record' : record_id
-    }
-    flag = 1
-    while(flag > 0 and flag < 5):
-        try:
-            r = requests.post(api_endpoint,data=data)
-            if r.status_code == 200:
-                flag = 0
-                return_url = r.content.decode("utf-8") 
-                return return_url
-            else:
-                logging.error('Error occured in exporting survey queue link.')
-                logging.error('HTTP Status: ' + str(r.status_code) + '. R4 record_id: ' + record_id)
-                logging.error(r.content)
-                flag = flag + 1
-        except Exception as e:
-            logging.error('Error occured in exporting survey queue link. ' + str(e))
-            logging.error('R4 record_id: ' + record_id)
-            flag = 5
-    return ""
-     
+   
 def indexing_local_data(local_data: list) -> pd.DataFrame:
     '''
     Indexing local data for matching
@@ -218,10 +178,7 @@ def match_r4_local_data(r4_data_df : pd.DataFrame, local_data_df : pd.DataFrame)
     current_mapping = pd.concat([current_mapping, qualified_local_df.merge(r4_data_unmapped_df,left_on=['child_first','last_child','dob_child'], right_on=['first_name_child','last_name_child','date_of_birth_child'])[['record_id','cuimc_id']].drop_duplicates()])
     # Step 5 auto generate cuimc id
     r4_data_unmapped_df = r4_data_df[~r4_data_df['record_id'].isin(current_mapping['record_id'])][['record_id']].drop_duplicates()
-    newly_created_cuimc_id_start = local_data_df['cuimc_id'].max() + 1
-    newly_created_cuimc_id_end = local_data_df['cuimc_id'].max()+1+len(r4_data_unmapped_df)
-    logging.info(f"Newly created cuimc id range: {newly_created_cuimc_id_start} - {newly_created_cuimc_id_end}")
-    r4_data_unmapped_df['cuimc_id'] = range(newly_created_cuimc_id_start, newly_created_cuimc_id_end)
+    r4_data_unmapped_df['cuimc_id'] = range(current_mapping['cuimc_id'].max()+1, current_mapping['cuimc_id'].max()+1+len(r4_data_unmapped_df))
     current_mapping = pd.concat([current_mapping, r4_data_unmapped_df])
     # Step 6. There is a few participants might have multiple records in R4, therefore one cuimc id can have multiple record_ids. 
     # Select the most recent record_id as the current record_id for that cuimc id
@@ -231,102 +188,13 @@ def match_r4_local_data(r4_data_df : pd.DataFrame, local_data_df : pd.DataFrame)
     current_mapping = current_mapping.loc[current_mapping.groupby('cuimc_id')['last_update_timestamp'].idxmax()]
     current_mapping = current_mapping[['record_id','cuimc_id']]
     return current_mapping
-
-def push_data_to_local(api_key_local: str, cu_local_endpoint: str, push_to_local_list : list) -> int:
-    '''
-    Push data to local REDCap
-    Input: api_key_local: API key for local REDCap
-           cu_local_endpoint: API endpoint for local REDCap
-           push_to_local_list: list of records to push to local REDCap
-    Output: 1 if success, 0 if failure
-    '''
-    logging.info('Push to local REDCap...')
-    data = {
-        'token': api_key_local,
-        'content': 'record',
-        'action': 'import',
-        'format': 'json',
-        'type': 'flat',
-        'overwriteBehavior': 'overwrite',
-        'forceAutoNumber': 'false',
-        'data': json.dumps(push_to_local_list),
-        'returnContent': 'count',
-        'returnFormat': 'json'
-    }
-    flag = 1
-    while(flag > 0 and flag < 3):
-        
-        r = requests.post(cu_local_endpoint,data=data)
-        if r.status_code == 200:
-            logging.debug('HTTP Status: ' + str(r.status_code))
-            if 'ERROR' in str(r.content):
-                logging.error(str(r.content))
-                logging.error('No record updated')
-                return 0
-            else:
-                logging.info('Updated records: ' + str(r.content))
-                return 1
-        else:
-            logging.error('Error occured in importing data to ' + cu_local_endpoint)
-            logging.error('HTTP Status: ' + str(r.status_code))
-            logging.error(r.content)
-            flag = flag + 1
-    
-    return 0
-
-def get_r4_links(api_key: str, api_endpoint : str, current_mapping: pd.DataFrame) -> pd.DataFrame:
-    '''
-    Get the survey queue link for each participant in the current_mapping
-    Input: api_key: API key for R4
-           api_endpoint: API endpoint for R4
-           current_mapping: the current mapping between R4 and local REDCap
-    Output: current_mapping with an additional column for the survey queue link
-    '''
-    record_id_list = current_mapping['record_id'].drop_duplicates()
-    def export_survey_queue_link_wrapper(r4_record):
-        # Additional parameter
-        return export_survey_queue_link(r4_record, api_key=api_key,api_endpoint=api_endpoint)
-    
-    # Apply the wrapper function to the array
-    logging.info("Getting survey queue link...")
-    return_urls = np.apply_along_axis(export_survey_queue_link_wrapper, axis=0, arr=record_id_list)
-    # Combine the arrays into a DataFrame
-    return_urls_df = pd.DataFrame({'r4_survey_queue_link': return_urls, 'record_id': record_id_list})
-    # Merge the DataFrames
-    current_mapping = pd.merge(current_mapping, return_urls_df, on='record_id')
-    return current_mapping
-
-def prepare_local_list(current_mapping : pd.DataFrame, r4_data : list, ignore_fields : list, current_time : str) -> list:
-    '''
-    Prepare the list to push to local REDCap
-    Input: current_mapping: the current mapping between R4 and local REDCap
-           r4_data: the data pulled from R4
-           ignore_fields: the fields to ignore
-           current_time: current time
-    Output: the list to push to local REDCap
-    '''
-    logging.info("Preparing Pushing list...")
-    current_mapping_df = get_r4_links(api_key_r4,r4_api_endpoint,current_mapping)
-    current_mapping_df['last_r4_pull'] = current_time
-     # check is it a redcap_repeat_instrument
-    r4_data_df = pd.DataFrame(r4_data)
-    r4_data_df = r4_data_df.drop(ignore_fields, axis=1)
-    r4_data_df = r4_data_df.merge(current_mapping_df)
-    repeat_instance_df = r4_data_df[r4_data_df['redcap_repeat_instrument']!='']
-    repeat_instance_df = repeat_instance_df.copy()
-    repeat_instance_df.drop(['record_id','r4_survey_queue_link','last_r4_pull'],axis=1,inplace=True)
-    non_repeat_instance_df = r4_data_df[r4_data_df['redcap_repeat_instrument']=='']
-    r4_data_df = pd.concat([non_repeat_instance_df, repeat_instance_df])
-    r4_data_df.fillna('', inplace=True)
-    push_to_local_list = r4_data_df.to_dict(orient='records')
-    return push_to_local_list
-            
+           
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--log', type=str, required=False, help="file to write log",)    
-    parser.add_argument('--token', type=str, required=False,  help='json file with api tokens')   
-    parser.add_argument('--ignore', type=str, required=False, help="json file with ignored R4 fields")    
+    parser.add_argument('--token', type=str, required=False,  help='json file with api tokens')
+    parser.add_argument('--output_prefix', type=str, required=False, help='prefix of output files')
     args = parser.parse_args()
 
     # if token file is not provided, use the default token file
@@ -335,45 +203,40 @@ if __name__ == "__main__":
     else:
         token_file = args.token
     
-    # if ignore file is not provided, use the default ignore file
-    if args.ignore is None:
-        ignore_file = './ignore_R4_fields.json'
-    else:
-        ignore_file = args.ignore
-
     # if log file is not provided, use the default log file
     if args.log is None:
-        log_file = './data_pull_from_r4.log'
+        log_file = './extract_id_mapping.log'
     else:
         log_file = args.log
+
+    # if output prefix is not provided, use the default output prefix
+    if args.output_prefix is None:
+        output_prefix = './test'
+    else:
+        output_prefix = args.output_prefix
     
     # set up logging.
     logging.basicConfig(filename=log_file, format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-    logging.info('Start pulling data from R4...')
+    logging.info('Start program...')
     # logging.basicConfig(level=logging.INFO)
     now = datetime.now()
     dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
 
     api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint = read_api_config(config_file = token_file)
-    ignore_fields = read_ignore_fields(ignore_file = ignore_file)
-    r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False)
+    r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, is_local_record=False)
     if r4_data != []:
         r4_data_df = indexing_r4_data(r4_data)
-        local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)
+        local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, is_local_record=True)
         local_data_df = indexing_local_data(local_data)
         current_mapping = match_r4_local_data(r4_data_df, local_data_df)
-        current_mapping.to_csv('./test_current_mapping.csv', index=False)
-        push_to_local_list = prepare_local_list(current_mapping, r4_data, ignore_fields, dt_string)
-        # Define the batch size
-        batch_size = 250
-        # Iterate over the list in batches
-        for i in range(0, len(push_to_local_list), batch_size):
-            logging.info(f"Index: {i}...Pushing data to local REDCap...")
-            batch = push_to_local_list[i:i+batch_size]
-            status = push_data_to_local(api_key_local, cu_local_endpoint, batch)
-            if status == 1:
-                logging.info(f"Index: {i}...Data pull from R4 is successful")
-            else:
-                logging.error(f"Index: {i}...Data pull from R4 is not successful")
-    logging.info('End pulling data from R4...')
+        current_mapping.to_csv(output_prefix + '_current_mapping.csv', index=False)
+        local_data_df.to_csv(output_prefix + '_local_df.csv',index=False)
+        r4_data_df.to_csv(output_prefix + '_r4_df.csv',index=False)
+        r4_mapping = r4_data_df.merge(current_mapping)
+        local_data_df['record_id_local_r4'] = local_data_df['record_id']
+        local_data_df.drop(columns=['record_id'],inplace=True)
+        master_df = r4_mapping.merge(local_data_df)
+        master_notna_df = master_df[(master_df['first_local'].notna() & master_df['first_name'].notna())]
+        master_notna_df[master_notna_df['first_local']!=master_notna_df['first_name']].to_csv(output_prefix + '_name_mismatch_df.csv',index=False)
+    logging.info('End program...')
