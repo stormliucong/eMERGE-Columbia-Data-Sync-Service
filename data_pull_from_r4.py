@@ -7,6 +7,36 @@ import logging
 import argparse
 import numpy as np
 
+def read_redcap_fields_from_record(api_key: str, api_endpoint : str) -> list:
+    '''
+    Read REDCap fields from REDCap using API
+    Input: api_key: API token
+           api_endpoint: api endpoint url
+    Output: field_name_list: a list of field names
+    '''
+
+    # local Data dictionary export
+    logging.info("Reading REDCAP fields from "  + str(api_endpoint) + "...")
+    data = {
+            'token': api_key,
+            'content': 'record',
+            'action': 'export',
+            'format': 'json',
+            'type': 'flat',
+            'csvDelimiter': '',
+            'rawOrLabel': 'raw',
+            'records[0]': '1',
+            'rawOrLabelHeaders': 'raw',
+            'exportCheckboxLabel': 'false',
+            'exportSurveyFields': 'false',
+            'exportDataAccessGroups': 'false',
+            'returnFormat': 'json'
+        }
+    r = requests.post(api_endpoint,data=data)
+    record = r.json()[0]
+    field_name_list = record.keys()
+    return field_name_list
+
 def read_ignore_fields(ignore_file: str) -> list:
     '''
     Read ignore fields from ignore_R4_fields.json
@@ -296,7 +326,7 @@ def get_r4_links(api_key: str, api_endpoint : str, current_mapping: pd.DataFrame
     current_mapping = pd.merge(current_mapping, return_urls_df, on='record_id')
     return current_mapping
 
-def prepare_local_list(current_mapping : pd.DataFrame, r4_data : list, ignore_fields : list, current_time : str) -> list:
+def prepare_local_list(current_mapping : pd.DataFrame, r4_data : list, ignore_fields : list, local_fields: list, current_time : str) -> list:
     '''
     Prepare the list to push to local REDCap
     Input: current_mapping: the current mapping between R4 and local REDCap
@@ -318,6 +348,10 @@ def prepare_local_list(current_mapping : pd.DataFrame, r4_data : list, ignore_fi
     non_repeat_instance_df = r4_data_df[r4_data_df['redcap_repeat_instrument']=='']
     r4_data_df = pd.concat([non_repeat_instance_df, repeat_instance_df])
     r4_data_df.fillna('', inplace=True)
+    more_ignore_fields = [i for i in r4_data_df.columns if i not in local_fields]
+    logging.info("More_ignore_fields...")
+    logging.info(more_ignore_fields)
+    r4_data_df.drop(more_ignore_fields, axis=1, inplace=True)
     push_to_local_list = r4_data_df.to_dict(orient='records')
     return push_to_local_list
             
@@ -357,6 +391,7 @@ if __name__ == "__main__":
 
     api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint = read_api_config(config_file = token_file)
     ignore_fields = read_ignore_fields(ignore_file = ignore_file)
+    local_fields = read_redcap_fields_from_record(api_key_local, cu_local_endpoint)
     r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False)
     if r4_data != []:
         r4_data_df = indexing_r4_data(r4_data)
@@ -364,7 +399,7 @@ if __name__ == "__main__":
         local_data_df = indexing_local_data(local_data)
         current_mapping = match_r4_local_data(r4_data_df, local_data_df)
         current_mapping.to_csv('./test_current_mapping.csv', index=False)
-        push_to_local_list = prepare_local_list(current_mapping, r4_data, ignore_fields, dt_string)
+        push_to_local_list = prepare_local_list(current_mapping, r4_data, ignore_fields, local_fields, dt_string)
         # Define the batch size
         batch_size = 250
         # Iterate over the list in batches
