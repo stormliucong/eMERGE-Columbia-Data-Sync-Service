@@ -304,7 +304,7 @@ def push_data_to_local(api_key_local: str, cu_local_endpoint: str, push_to_local
     
     return 0
 
-def get_r4_links(api_key: str, api_endpoint : str, current_mapping: pd.DataFrame) -> pd.DataFrame:
+def get_r4_links(api_key: str, api_endpoint : str, current_mapping: pd.DataFrame, r4_data: list) -> pd.DataFrame:
     '''
     Get the survey queue link for each participant in the current_mapping
     Input: api_key: API key for R4
@@ -312,18 +312,29 @@ def get_r4_links(api_key: str, api_endpoint : str, current_mapping: pd.DataFrame
            current_mapping: the current mapping between R4 and local REDCap
     Output: current_mapping with an additional column for the survey queue link
     '''
-    record_id_list = current_mapping['record_id'].drop_duplicates()
-    def export_survey_queue_link_wrapper(r4_record):
-        # Additional parameter
-        return export_survey_queue_link(r4_record, api_key=api_key,api_endpoint=api_endpoint)
+    # record_id_list = current_mapping[['record_id']].drop_duplicates()
+    logging.info("Getting survey queue link...")
+
+    r4_data_df = pd.DataFrame(r4_data)
+    non_repeat_instance_df = r4_data_df[r4_data_df['redcap_repeat_instrument']=='']
+
+    r4_return_urls_df = non_repeat_instance_df[['record_id','survey_queue_link']].drop_duplicates()
+    r4_return_urls_df['r4_survey_queue_link'] = r4_return_urls_df['survey_queue_link']
+    
+    # def export_survey_queue_link_wrapper(r4_record):
+    #     # Additional parameter
+    #     return export_survey_queue_link(r4_record, api_key=api_key,api_endpoint=api_endpoint)
     
     # Apply the wrapper function to the array
-    logging.info("Getting survey queue link...")
-    return_urls = np.apply_along_axis(export_survey_queue_link_wrapper, axis=0, arr=record_id_list)
+    # return_urls = np.apply_along_axis(export_survey_queue_link_wrapper, axis=0, arr=np.array(record_id_list)) # does not work may be due to syncronization issue?
+    # return_urls = list(map(export_survey_queue_link_wrapper, record_id_list)) # very slow but works
+
     # Combine the arrays into a DataFrame
-    return_urls_df = pd.DataFrame({'r4_survey_queue_link': return_urls, 'record_id': record_id_list})
+    # return_urls_df = pd.DataFrame({'r4_survey_queue_link': return_urls, 'record_id': record_id_list})
     # Merge the DataFrames
-    current_mapping = pd.merge(current_mapping, return_urls_df, on='record_id')
+    current_mapping = pd.merge(current_mapping, r4_return_urls_df, on='record_id',how='left')
+    # drop the survey_queue_link column
+    current_mapping = current_mapping.drop('survey_queue_link', axis=1)
     return current_mapping
 
 def prepare_local_list(current_mapping : pd.DataFrame, r4_data : list, ignore_fields : list, local_fields: list, current_time : str) -> list:
@@ -336,7 +347,7 @@ def prepare_local_list(current_mapping : pd.DataFrame, r4_data : list, ignore_fi
     Output: the list to push to local REDCap
     '''
     logging.info("Preparing Pushing list...")
-    current_mapping_df = get_r4_links(api_key_r4,r4_api_endpoint,current_mapping)
+    current_mapping_df = get_r4_links(api_key_r4,r4_api_endpoint,current_mapping, r4_data)
     current_mapping_df['last_r4_pull'] = current_time
      # check is it a redcap_repeat_instrument
     r4_data_df = pd.DataFrame(r4_data)
