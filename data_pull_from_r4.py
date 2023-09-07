@@ -72,12 +72,13 @@ def read_api_config(config_file: str = './api_tokens.json') -> tuple:
     r4_api_endpoint = api_conf['r4_api_endpoint'] # R4 api endpoint
     return api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint
 
-def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = False) -> list:
+def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = False, record_id = None) -> list:
     '''
     Export data from REDCap using API
     Input: api_key: API token
            api_endpoint: api endpoint url
            id_only: whether to export only id fields
+           record_id: the record id of the participant if provided
     Output: data: a json object containing all the data from REDCap
     '''
     logging.info(f"Exporting data from {api_endpoint}...")
@@ -129,6 +130,9 @@ def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = 
             'exportDataAccessGroups': 'false',
             'returnFormat': 'json'
         }
+    
+    if record_id is not None:
+        data['records[0]'] = str(record_id)
     flag = 1
     while(flag > 0 and flag < 5):
         try:
@@ -371,7 +375,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--log', type=str, required=False, help="file to write log",)    
     parser.add_argument('--token', type=str, required=False,  help='json file with api tokens')   
-    parser.add_argument('--ignore', type=str, required=False, help="json file with ignored R4 fields")    
+    parser.add_argument('--ignore', type=str, required=False, help="json file with ignored R4 fields")
+    parser.add_argument('--r4_id', type=int, required=False, help="r4 id for a single participant sync")    
     args = parser.parse_args()
 
     # if token file is not provided, use the default token file
@@ -392,6 +397,11 @@ if __name__ == "__main__":
     else:
         log_file = args.log
     
+    if args.r4_id is not None:
+        r4_id = str(args.r4_id)
+    else:
+        r4_id = None
+    
     # set up logging.
     logging.basicConfig(filename=log_file, format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -403,7 +413,7 @@ if __name__ == "__main__":
     api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint = read_api_config(config_file = token_file)
     ignore_fields = read_ignore_fields(ignore_file = ignore_file)
     local_fields = read_redcap_fields_from_record(api_key_local, cu_local_endpoint)
-    r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False)
+    r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id)
     if r4_data != []:
         r4_data_df = indexing_r4_data(r4_data)
         local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)
@@ -412,7 +422,7 @@ if __name__ == "__main__":
         current_mapping.to_csv('./test_current_mapping.csv', index=False)
         push_to_local_list = prepare_local_list(current_mapping, r4_data, ignore_fields, local_fields, dt_string)
         # Define the batch size
-        batch_size = 250
+        batch_size = 100
         # Iterate over the list in batches
         for i in range(0, len(push_to_local_list), batch_size):
             logging.info(f"Index: {i}...Pushing data to local REDCap...")
