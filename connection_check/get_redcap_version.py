@@ -1,11 +1,9 @@
 import requests
 import json
-from pprint import pprint
-from datetime import datetime
-from io import StringIO
-import pandas as pd
 
-def read_api_config(config_file = './api_tokens.json'):
+# change api_tokens.json to your own api_tokens.json file
+
+def read_api_config(config_file = '../api_tokens.json'):
     api_token_file = config_file
     with open(api_token_file,'r') as f:
         api_conf = json.load(f)
@@ -21,14 +19,16 @@ def get_api_version(api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoin
         'token': api_key_local,
         'content': 'version'
     }
-    r = requests.post(cu_local_endpoint,data=data)
+    # change verify to False if you are using self-signed certificate
+    r = requests.post(cu_local_endpoint,data=data, verify=False)
     print('HTTP Status: ' + str(r.status_code))
     print('Local redcap version : ' + str(r.content))
     data = {
         'token': api_key_r4,
         'content': 'version'
     }
-    r = requests.post(r4_api_endpoint,data=data)
+    # change verify to False if you are using self-signed certificate
+    r = requests.post(r4_api_endpoint,data=data, verify=False)
     print('HTTP Status: ' + str(r.status_code))
     print('R4 redcap version : ' + str(r.content))
 
