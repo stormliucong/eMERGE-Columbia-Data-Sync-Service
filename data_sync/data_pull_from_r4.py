@@ -1,11 +1,18 @@
 from distutils.command.config import config
 import requests
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+# Suppress the InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 import json
 from datetime import datetime
 import pandas as pd
+import warnings
+# Suppress the FutureWarning
+warnings.filterwarnings("ignore", category=FutureWarning)
 import logging
 import argparse
 import numpy as np
+import os
 
 def read_redcap_fields_from_record(api_key: str, api_endpoint : str) -> list:
     '''
@@ -17,6 +24,7 @@ def read_redcap_fields_from_record(api_key: str, api_endpoint : str) -> list:
 
     # local Data dictionary export
     logging.info("Reading REDCAP fields from "  + str(api_endpoint) + "...")
+    logging.debug("API key: " + api_key)
     data = {
             'token': api_key,
             'content': 'record',
@@ -32,7 +40,7 @@ def read_redcap_fields_from_record(api_key: str, api_endpoint : str) -> list:
             'exportDataAccessGroups': 'false',
             'returnFormat': 'json'
         }
-    r = requests.post(api_endpoint,data=data)
+    r = requests.post(api_endpoint,data=data, verify=False)
     record = r.json()[0]
     field_name_list = record.keys()
     return field_name_list
@@ -49,7 +57,7 @@ def read_ignore_fields(ignore_file: str) -> list:
         ignore_fields = json.load(f)
         # iterative dictionary 
         ignore_fields = [k for k, v in ignore_fields.items() if str(v) == '1']
-        logging.info("Ignore fields: " + ','.join(ignore_fields))
+        logging.debug("Ignore fields: " + ','.join(ignore_fields))
     return ignore_fields    
 
 def read_api_config(config_file: str = './api_tokens.json') -> tuple:
@@ -136,10 +144,11 @@ def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = 
     flag = 1
     while(flag > 0 and flag < 5):
         try:
-            r = requests.post(api_endpoint,data=data)
+            r = requests.post(api_endpoint,data=data, verify=False)
             if r.status_code == 200:
                 logging.debug('HTTP Status: ' + str(r.status_code))
                 data = r.json()
+                logging.info('Length of JSON Pulled: ' + str(len(data)))
                 return data
             else:
                 logging.error('Error occured in exporting data from ' + api_endpoint)
@@ -170,7 +179,7 @@ def export_survey_queue_link(record_id : str, api_key : str, api_endpoint: str) 
     flag = 1
     while(flag > 0 and flag < 5):
         try:
-            r = requests.post(api_endpoint,data=data)
+            r = requests.post(api_endpoint,data=data, verify=False)
             if r.status_code == 200:
                 flag = 0
                 return_url = r.content.decode("utf-8") 
@@ -200,9 +209,12 @@ def indexing_local_data(local_data: list) -> pd.DataFrame:
         local_data_df = local_data_df[['cuimc_id','first_local','last_local','dob','last_child','child_first','dob_child','participant_lab_id','record_id']] 
         local_data_df = local_data_df.apply(lambda x: x.str.strip().str.lower() if x.dtype == "object" else x)
         local_data_df['cuimc_id'] = local_data_df['cuimc_id'].astype(int)
+        # patch 9/13/23 change 'nan' to ''
+        local_data_df = local_data_df.applymap(lambda x: '' if str(x).lower() == 'nan' else x)
 
     else:
         local_data_df = pd.DataFrame()
+    logging.info("Local dataset length: " + str(local_data_df.shape[0]))
     return local_data_df
 
 def indexing_r4_data(r4_data: list) -> pd.DataFrame:
@@ -221,6 +233,7 @@ def indexing_r4_data(r4_data: list) -> pd.DataFrame:
         r4_data_df['age'] = r4_data_df['age'].apply(lambda x: 999 if x == '' else int(x)) # if age not generated match as adult.
     else:
         r4_data_df = pd.DataFrame()
+    logging.info("R4 dataset length: " + str(r4_data_df.shape[0]))
     return r4_data_df
 
 def match_r4_local_data(r4_data_df : pd.DataFrame, local_data_df : pd.DataFrame) -> pd.DataFrame:
@@ -254,7 +267,10 @@ def match_r4_local_data(r4_data_df : pd.DataFrame, local_data_df : pd.DataFrame)
     r4_data_unmapped_df = r4_data_df[~r4_data_df['record_id'].isin(current_mapping['record_id'])][['record_id']].drop_duplicates()
     newly_created_cuimc_id_start = local_data_df['cuimc_id'].max() + 1
     newly_created_cuimc_id_end = local_data_df['cuimc_id'].max()+1+len(r4_data_unmapped_df)
-    logging.info(f"Newly created cuimc id range: {newly_created_cuimc_id_start} - {newly_created_cuimc_id_end}")
+    if len(r4_data_unmapped_df) > 0:
+        logging.info(f"Newly created cuimc id range: {newly_created_cuimc_id_start} - {newly_created_cuimc_id_end}")
+    else:
+        logging.info("No new cuimc id created")
     r4_data_unmapped_df['cuimc_id'] = range(newly_created_cuimc_id_start, newly_created_cuimc_id_end)
     current_mapping = pd.concat([current_mapping, r4_data_unmapped_df])
     # Step 6. There is a few participants might have multiple records in R4, therefore one cuimc id can have multiple record_ids. 
@@ -264,14 +280,15 @@ def match_r4_local_data(r4_data_df : pd.DataFrame, local_data_df : pd.DataFrame)
     current_mapping['last_update_timestamp'] = pd.to_datetime(current_mapping['last_update_timestamp'], format='%Y-%m-%d %H:%M:%S')
     current_mapping = current_mapping.loc[current_mapping.groupby('cuimc_id')['last_update_timestamp'].idxmax()]
     current_mapping = current_mapping[['record_id','cuimc_id']]
+    logging.info("Number of records in current mapping: " + str(current_mapping.shape[0]))
     return current_mapping
 
-def push_data_to_local(api_key_local: str, cu_local_endpoint: str, push_to_local_list : list) -> int:
+def push_data_to_local(api_key_local: str, cu_local_endpoint: str, batch : list) -> int:
     '''
     Push data to local REDCap
     Input: api_key_local: API key for local REDCap
            cu_local_endpoint: API endpoint for local REDCap
-           push_to_local_list: list of records to push to local REDCap
+           batch: a batch list of records to push to local REDCap
     Output: 1 if success, 0 if failure
     '''
     logging.info('Push to local REDCap...')
@@ -283,14 +300,14 @@ def push_data_to_local(api_key_local: str, cu_local_endpoint: str, push_to_local
         'type': 'flat',
         'overwriteBehavior': 'overwrite',
         'forceAutoNumber': 'false',
-        'data': json.dumps(push_to_local_list),
+        'data': json.dumps(batch),
         'returnContent': 'count',
         'returnFormat': 'json'
     }
     flag = 1
     while(flag > 0 and flag < 3):
         
-        r = requests.post(cu_local_endpoint,data=data)
+        r = requests.post(cu_local_endpoint,data=data, verify=False)
         if r.status_code == 200:
             logging.debug('HTTP Status: ' + str(r.status_code))
             if 'ERROR' in str(r.content):
@@ -298,13 +315,16 @@ def push_data_to_local(api_key_local: str, cu_local_endpoint: str, push_to_local
                 logging.error('No record updated')
                 return 0
             else:
-                logging.info('Updated records: ' + str(r.content))
+                logging.info('Updated records from ' + str(batch[0]['record_id']) + ' to ' + str(batch[-1]['record_id']))
                 return 1
         else:
             logging.error('Error occured in importing data to ' + cu_local_endpoint)
             logging.error('HTTP Status: ' + str(r.status_code))
             logging.error(r.content)
+            logging.error('Updated records failed from ' + str(batch[0]['record_id']) + ' to ' + str(batch[-1]['record_id']))
             flag = flag + 1
+            # ERROR - HTTP Status: 500
+            # increase php.ini post_max_size
     
     return 0
 
@@ -355,25 +375,35 @@ def prepare_local_list(current_mapping : pd.DataFrame, r4_data : list, ignore_fi
     current_mapping_df['last_r4_pull'] = current_time
      # check is it a redcap_repeat_instrument
     r4_data_df = pd.DataFrame(r4_data)
+    logging.debug("DEBUG r4_data_df: ")
+    logging.debug(r4_data_df[r4_data_df['record_id']=='18697'][['record_id','redcap_repeat_instrument','redcap_repeat_instance']])
     r4_data_df = r4_data_df.drop(ignore_fields, axis=1)
-    r4_data_df = r4_data_df.merge(current_mapping_df)
+    r4_data_df = r4_data_df.merge(current_mapping_df, on='record_id', how='left')
+    r4_data_df['cuimc_id'] = pd.to_numeric(r4_data_df['cuimc_id'].astype(str).str.strip(), errors='coerce').fillna(0).astype(int)
+    logging.debug("DEBUG r4_data_df after merged: ")
+    logging.debug(r4_data_df[r4_data_df['record_id']=='18697'][['record_id','cuimc_id','redcap_repeat_instrument','redcap_repeat_instance']])
     repeat_instance_df = r4_data_df[r4_data_df['redcap_repeat_instrument']!='']
     repeat_instance_df = repeat_instance_df.copy()
     repeat_instance_df.drop(['record_id','r4_survey_queue_link','last_r4_pull'],axis=1,inplace=True)
     non_repeat_instance_df = r4_data_df[r4_data_df['redcap_repeat_instrument']=='']
     r4_data_df = pd.concat([non_repeat_instance_df, repeat_instance_df])
     r4_data_df.fillna('', inplace=True)
+    cuimc_id_test = r4_data_df[r4_data_df['record_id']=='18697']['cuimc_id'].tolist()[0]
+    logging.debug(r4_data_df[r4_data_df['cuimc_id']==cuimc_id_test][['cuimc_id','record_id','redcap_repeat_instrument','redcap_repeat_instance']])
     more_ignore_fields = [i for i in r4_data_df.columns if i not in local_fields]
     logging.info("More_ignore_fields...")
-    logging.info(more_ignore_fields)
+    logging.debug(more_ignore_fields)
     r4_data_df.drop(more_ignore_fields, axis=1, inplace=True)
-    push_to_local_list = r4_data_df.to_dict(orient='records')
-    return push_to_local_list
+    logging.debug("DEBUG r4_data_df FINAL drop more_ignore_fields: ")
+    logging.debug(r4_data_df[r4_data_df['cuimc_id']==cuimc_id_test][['cuimc_id','record_id','redcap_repeat_instrument','redcap_repeat_instance']])
+    # push_to_local_list = r4_data_df.to_dict(orient='records')
+    # logging.debug([{e['record_id'], e['cuimc_id'], e['redcap_repeat_instrument']} for e in push_to_local_list if e['cuimc_id']==cuimc_id_test])
+    return r4_data_df, cuimc_id_test
             
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--log', type=str, required=False, help="file to write log",)    
+    parser.add_argument('--log_folder', type=str, required=False, help="folder to write log",)    
     parser.add_argument('--token', type=str, required=False,  help='json file with api tokens')   
     parser.add_argument('--ignore', type=str, required=False, help="json file with ignored R4 fields")
     parser.add_argument('--r4_id', type=int, required=False, help="r4 id for a single participant sync")    
@@ -381,7 +411,7 @@ if __name__ == "__main__":
 
     # if token file is not provided, use the default token file
     if args.token is None:
-        token_file = './api_tokens.json'
+        token_file = '../api_tokens.json'
     else:
         token_file = args.token
     
@@ -392,10 +422,11 @@ if __name__ == "__main__":
         ignore_file = args.ignore
 
     # if log file is not provided, use the default log file
-    if args.log is None:
-        log_file = './data_pull_from_r4.log'
+    date_string = datetime.now().strftime("%Y%m%d")
+    if args.log_folder is None:
+        log_file = 'logs/data_pull_from_r4_' + date_string + '.log'
     else:
-        log_file = args.log
+        log_file = os.path.join(args.log_folder, 'data_pull_from_r4_' + date_string + '.log')
     
     if args.r4_id is not None:
         r4_id = str(args.r4_id)
@@ -414,22 +445,44 @@ if __name__ == "__main__":
     ignore_fields = read_ignore_fields(ignore_file = ignore_file)
     local_fields = read_redcap_fields_from_record(api_key_local, cu_local_endpoint)
     r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id)
+    logging.debug("DEBUG r4_data: ")
+    # logging.debug([e for e in r4_data if e['record_id']=='18697'])
     if r4_data != []:
         r4_data_df = indexing_r4_data(r4_data)
+        logging.debug("DEBUG r4_data_df: ")
+        logging.debug(r4_data_df[r4_data_df['record_id']=='18697'])
         local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)
         local_data_df = indexing_local_data(local_data)
         current_mapping = match_r4_local_data(r4_data_df, local_data_df)
-        current_mapping.to_csv('./test_current_mapping.csv', index=False)
-        push_to_local_list = prepare_local_list(current_mapping, r4_data, ignore_fields, local_fields, dt_string)
-        # Define the batch size
-        batch_size = 100
+        logging.debug("DEBUG current_mapping: ")
+        logging.debug(current_mapping[current_mapping['record_id']=='18697'])
+        r4_data_df, cuimc_id_test = prepare_local_list(current_mapping, r4_data, ignore_fields, local_fields, dt_string)
+        logging.debug("DEBUG push_to_local_list: ")
+        ####################### Define the batch size ########################
+        # reduce the batch size if there is a memory issue
+        # for batch size 5000, put php_value memory_limit "4G" in php.ini or 020-redcap.conf
+        # There is a very strange REDCap bug. 
+        # Using a batch approach will accidently split a single participant's multiple dictionaries into different batches. 
+        # In that case, later records (no matter if they are repeated instances or not) will always overwrite the ones in the previous batch. 
+        # That's why it works for one participant but not for all.
+        # To avoid this, make sure all the records for a single participant are in the same batch.
+        #######################################################################
+        batch_size = 500
+        cuimc_id_list = r4_data_df['cuimc_id'].unique().tolist()
+        logging.info(f"Number of unique cuimc_id: {len(cuimc_id_list)}")
         # Iterate over the list in batches
-        for i in range(0, len(push_to_local_list), batch_size):
+        for i in range(0, len(cuimc_id_list), batch_size):
             logging.info(f"Index: {i}...Pushing data to local REDCap...")
-            batch = push_to_local_list[i:i+batch_size]
+            start = i
+            end = min(i + batch_size, len(cuimc_id_list))
+            cuimc_id_batch = cuimc_id_list[start:end]
+            r4_data_batch_df = r4_data_df[r4_data_df['cuimc_id'].isin(cuimc_id_batch)]
+            batch = r4_data_batch_df.to_dict(orient='records')
+            logging.debug("DEBUG push_to_local_list: ")
+            logging.debug([{e['redcap_repeat_instrument'], e['cuimc_id'], e['record_id']} for e in batch if e['cuimc_id']==cuimc_id_test])
             status = push_data_to_local(api_key_local, cu_local_endpoint, batch)
             if status == 1:
-                logging.info(f"Index: {i}...Data pull from R4 is successful")
+                logging.info(f"Index: {start} to {end}...Data pull from R4 is successful")
             else:
-                logging.error(f"Index: {i}...Data pull from R4 is not successful")
+                logging.error(f"Index: {start} to {end}...Data pull from R4 is not successful")
     logging.info('End pulling data from R4...')

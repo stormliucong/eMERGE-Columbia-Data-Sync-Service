@@ -7,7 +7,6 @@
 ### To be done
 - Since R4 is constantly changing, a better machanism is needed to report and monitor the change. Especially to avoid the errors like `ERROR:root:b'{"error":"The following fields were not found in the project as real data fields: your_or_your_childs_3"}'`
 - The file sync is not supported currently. 
-- Pull updated record only.
 
 ### How to use 
 1. Create API token and endpoint
@@ -21,7 +20,7 @@
     } 
     ```
 
-2. Try `get_redcap_version.py` to make sure the connection and API token works
+2. Try `connection_check/get_redcap_version.py` to make sure the connection and API token works
     ```sh
     # Since columbia use CAS to authenticate local Redcap, we have to 
     # add a list of IP (where this program hosted) into the whitelist
@@ -49,6 +48,7 @@
 
 5. Modify `data_pull_from_r4.py` to pull R4 data periodically into local Redcap
     - `cumc_id` will be created by adding 1 into the current largest number in local redcap. Numbers larger than `10000` are reserved for those Epic imported records.
+    - current program is optimzed for memory and time. Takes about ~5 mins to sync ~2500 records.
     - Pull R4 data and match local data by 
         1. record_id in r4; (This can be assigned a record_id in a local record to enable a forced manual match.) 
         2. participant IDs; 
