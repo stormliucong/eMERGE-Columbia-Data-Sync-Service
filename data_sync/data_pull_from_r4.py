@@ -1,4 +1,3 @@
-from distutils.command.config import config
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 # Suppress the InsecureRequestWarning
@@ -11,8 +10,26 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 import logging
 import argparse
-import numpy as np
 import os
+import smtplib
+from email.message import EmailMessage
+import sys
+
+def send_email(msg,host,port):
+    logging.info("Sending email...")
+    is_success = False
+    # Send the email via our own SMTP server.
+    try:
+        with smtplib.SMTP(host, port) as smtp:
+            status = smtp.send_message(msg)
+            if status == {}:
+                is_success = True
+            else:
+                logging.error(f'Error sending email: {status}')
+
+    except smtplib.SMTPException:
+        logging.error(f'Error sending email: {sys.exc_info()[0]}')
+    return is_success
 
 def read_redcap_fields_from_record(api_key: str, api_endpoint : str) -> list:
     '''
@@ -388,101 +405,112 @@ def prepare_local_list(current_mapping : pd.DataFrame, r4_data : list, ignore_fi
     non_repeat_instance_df = r4_data_df[r4_data_df['redcap_repeat_instrument']=='']
     r4_data_df = pd.concat([non_repeat_instance_df, repeat_instance_df])
     r4_data_df.fillna('', inplace=True)
-    cuimc_id_test = r4_data_df[r4_data_df['record_id']=='18697']['cuimc_id'].tolist()[0]
-    logging.debug(r4_data_df[r4_data_df['cuimc_id']==cuimc_id_test][['cuimc_id','record_id','redcap_repeat_instrument','redcap_repeat_instance']])
     more_ignore_fields = [i for i in r4_data_df.columns if i not in local_fields]
     logging.info("More_ignore_fields...")
     logging.debug(more_ignore_fields)
     r4_data_df.drop(more_ignore_fields, axis=1, inplace=True)
     logging.debug("DEBUG r4_data_df FINAL drop more_ignore_fields: ")
-    logging.debug(r4_data_df[r4_data_df['cuimc_id']==cuimc_id_test][['cuimc_id','record_id','redcap_repeat_instrument','redcap_repeat_instance']])
     # push_to_local_list = r4_data_df.to_dict(orient='records')
-    # logging.debug([{e['record_id'], e['cuimc_id'], e['redcap_repeat_instrument']} for e in push_to_local_list if e['cuimc_id']==cuimc_id_test])
-    return r4_data_df, cuimc_id_test
+    return r4_data_df
             
 if __name__ == "__main__":
+    try:
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--log_folder', type=str, required=False, help="folder to write log",)    
-    parser.add_argument('--token', type=str, required=False,  help='json file with api tokens')   
-    parser.add_argument('--ignore', type=str, required=False, help="json file with ignored R4 fields")
-    parser.add_argument('--r4_id', type=int, required=False, help="r4 id for a single participant sync")    
-    args = parser.parse_args()
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--log_folder', type=str, required=False, help="folder to write log",)    
+        parser.add_argument('--token', type=str, required=False,  help='json file with api tokens')   
+        parser.add_argument('--ignore', type=str, required=False, help="json file with ignored R4 fields")
+        parser.add_argument('--r4_id', type=int, required=False, help="r4 id for a single participant sync")    
+        args = parser.parse_args()
 
-    # if token file is not provided, use the default token file
-    if args.token is None:
-        token_file = '../api_tokens.json'
-    else:
-        token_file = args.token
-    
-    # if ignore file is not provided, use the default ignore file
-    if args.ignore is None:
-        ignore_file = './ignore_R4_fields.json'
-    else:
-        ignore_file = args.ignore
+        # if token file is not provided, use the default token file
+        if args.token is None:
+            token_file = '../api_tokens.json'
+        else:
+            token_file = args.token
+        
+        # if ignore file is not provided, use the default ignore file
+        if args.ignore is None:
+            ignore_file = './ignore_R4_fields.json'
+        else:
+            ignore_file = args.ignore
 
-    # if log file is not provided, use the default log file
-    date_string = datetime.now().strftime("%Y%m%d")
-    if args.log_folder is None:
-        log_file = 'logs/data_pull_from_r4_' + date_string + '.log'
-    else:
-        log_file = os.path.join(args.log_folder, 'data_pull_from_r4_' + date_string + '.log')
-    
-    if args.r4_id is not None:
-        r4_id = str(args.r4_id)
-    else:
-        r4_id = None
-    
-    # set up logging.
-    logging.basicConfig(filename=log_file, format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+        # if log file is not provided, use the default log file
+        date_string = datetime.now().strftime("%Y%m%d")
+        if args.log_folder is None:
+            log_file = 'logs/data_pull_from_r4_' + date_string + '.log'
+        else:
+            log_file = os.path.join(args.log_folder, 'data_pull_from_r4_' + date_string + '.log')
+        
+        if args.r4_id is not None:
+            r4_id = str(args.r4_id)
+        else:
+            r4_id = None
+        
+        # set up logging.
+        logging.basicConfig(filename=log_file, format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-    logging.info('Start pulling data from R4...')
-    # logging.basicConfig(level=logging.INFO)
-    now = datetime.now()
-    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+        logging.info('Start pulling data from R4...')
+        # logging.basicConfig(level=logging.INFO)
+        now = datetime.now()
+        dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
 
-    api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint = read_api_config(config_file = token_file)
-    ignore_fields = read_ignore_fields(ignore_file = ignore_file)
-    local_fields = read_redcap_fields_from_record(api_key_local, cu_local_endpoint)
-    r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id)
-    logging.debug("DEBUG r4_data: ")
-    # logging.debug([e for e in r4_data if e['record_id']=='18697'])
-    if r4_data != []:
-        r4_data_df = indexing_r4_data(r4_data)
-        logging.debug("DEBUG r4_data_df: ")
-        logging.debug(r4_data_df[r4_data_df['record_id']=='18697'])
-        local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)
-        local_data_df = indexing_local_data(local_data)
-        current_mapping = match_r4_local_data(r4_data_df, local_data_df)
-        logging.debug("DEBUG current_mapping: ")
-        logging.debug(current_mapping[current_mapping['record_id']=='18697'])
-        r4_data_df, cuimc_id_test = prepare_local_list(current_mapping, r4_data, ignore_fields, local_fields, dt_string)
-        logging.debug("DEBUG push_to_local_list: ")
-        ####################### Define the batch size ########################
-        # reduce the batch size if there is a memory issue
-        # for batch size 5000, put php_value memory_limit "4G" in php.ini or 020-redcap.conf
-        # There is a very strange REDCap bug. 
-        # Using a batch approach will accidently split a single participant's multiple dictionaries into different batches. 
-        # In that case, later records (no matter if they are repeated instances or not) will always overwrite the ones in the previous batch. 
-        # That's why it works for one participant but not for all.
-        # To avoid this, make sure all the records for a single participant are in the same batch.
-        #######################################################################
-        batch_size = 500
-        cuimc_id_list = r4_data_df['cuimc_id'].unique().tolist()
-        logging.info(f"Number of unique cuimc_id: {len(cuimc_id_list)}")
-        # Iterate over the list in batches
-        for i in range(0, len(cuimc_id_list), batch_size):
-            logging.info(f"Index: {i}...Pushing data to local REDCap...")
-            start = i
-            end = min(i + batch_size, len(cuimc_id_list))
-            cuimc_id_batch = cuimc_id_list[start:end]
-            r4_data_batch_df = r4_data_df[r4_data_df['cuimc_id'].isin(cuimc_id_batch)]
-            batch = r4_data_batch_df.to_dict(orient='records')
+        api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint = read_api_config(config_file = token_file)
+        ignore_fields = read_ignore_fields(ignore_file = ignore_file)
+        local_fields = read_redcap_fields_from_record(api_key_local, cu_local_endpoint)
+        r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id)
+        logging.debug("DEBUG r4_data: ")
+        # logging.debug([e for e in r4_data if e['record_id']=='18697'])
+        if r4_data != []:
+            r4_data_df = indexing_r4_data(r4_data)
+            logging.debug("DEBUG r4_data_df: ")
+            logging.debug(r4_data_df[r4_data_df['record_id']=='18697'])
+            local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)
+            local_data_df = indexing_local_data(local_data)
+            current_mapping = match_r4_local_data(r4_data_df, local_data_df)
+            logging.debug("DEBUG current_mapping: ")
+            logging.debug(current_mapping[current_mapping['record_id']=='18697'])
+            r4_data_df = prepare_local_list(current_mapping, r4_data, ignore_fields, local_fields, dt_string)
             logging.debug("DEBUG push_to_local_list: ")
-            logging.debug([{e['redcap_repeat_instrument'], e['cuimc_id'], e['record_id']} for e in batch if e['cuimc_id']==cuimc_id_test])
-            status = push_data_to_local(api_key_local, cu_local_endpoint, batch)
-            if status == 1:
-                logging.info(f"Index: {start} to {end}...Data pull from R4 is successful")
-            else:
-                logging.error(f"Index: {start} to {end}...Data pull from R4 is not successful")
-    logging.info('End pulling data from R4...')
+            ####################### Define the batch size ########################
+            # reduce the batch size if there is a memory issue
+            # for batch size 5000, put php_value memory_limit "4G" in php.ini or 020-redcap.conf
+            # There is a very strange REDCap bug. 
+            # Using a batch approach will accidently split a single participant's multiple dictionaries into different batches. 
+            # In that case, later records (no matter if they are repeated instances or not) will always overwrite the ones in the previous batch. 
+            # That's why it works for one participant but not for all.
+            # To avoid this, make sure all the records for a single participant are in the same batch.
+            #######################################################################
+            batch_size = 500
+            cuimc_id_list = r4_data_df['cuimc_id'].unique().tolist()
+            logging.info(f"Number of unique cuimc_id: {len(cuimc_id_list)}")
+            # Iterate over the list in batches
+            for i in range(0, len(cuimc_id_list), batch_size):
+                logging.info(f"Index: {i}...Pushing data to local REDCap...")
+                start = i
+                end = min(i + batch_size, len(cuimc_id_list))
+                cuimc_id_batch = cuimc_id_list[start:end]
+                r4_data_batch_df = r4_data_df[r4_data_df['cuimc_id'].isin(cuimc_id_batch)]
+                batch = r4_data_batch_df.to_dict(orient='records')
+                logging.debug("DEBUG push_to_local_list: ")
+                status = push_data_to_local(api_key_local, cu_local_endpoint, batch)
+                if status == 1:
+                    logging.info(f"Index: {start} to {end}...Data pull from R4 is successful")
+                else:
+                    logging.error(f"Index: {start} to {end}...Data pull from R4 is not successful")
+        logging.info('End pulling data from R4...')
+    except Exception as e:
+        # send email if error occurs
+        logging.error('Error occured in pulling data from R4. ' + str(e))
+        logging.error('pulling data from R4 Failed...')
+        SMTP_HOST = "nova.cpmc.columbia.edu"
+        SMTP_PORT = 587
+        FROM_ADDR = "emerge_study@cumc.columbia.edu"
+        msg = EmailMessage()
+        msg['From'] = FROM_ADDR
+        msg['To'] = 'cl3720@cumc.columbia.edu'       
+        msg['Subject'] = '[Error] eMERGE Columbia Data Sync Service'
+        body = 'Error occured in pulling data from R4. ' + str(e)
+        msg.add_alternative(body,subtype='html')
+        send_email(msg, SMTP_HOST, SMTP_PORT)
+    
