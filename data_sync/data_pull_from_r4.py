@@ -493,6 +493,13 @@ if __name__ == "__main__":
                 r4_data_batch_df = r4_data_df[r4_data_df['cuimc_id'].isin(cuimc_id_batch)]
                 batch = r4_data_batch_df.to_dict(orient='records')
                 logging.debug("DEBUG push_to_local_list: ")
+                # write to a test json
+                # with open('test.json', 'w') as f:
+                #     json.dump(batch, f)               
+                ### Important: 
+                # During the project setup some of R4 fields are based on survey equations, which won't sync correctly into local REDCap
+                # Therefore, we need to manually update those fields in local REDCap by removing the @CALC in those fields
+                # examples include adult_baseline_timestamp, child_baseline_timestamp,preror_adult_timestamp,preror_child_timestamp
                 status = push_data_to_local(api_key_local, cu_local_endpoint, batch)
                 if status == 1:
                     logging.info(f"Index: {start} to {end}...Data pull from R4 is successful")

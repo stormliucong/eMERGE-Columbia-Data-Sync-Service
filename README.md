@@ -4,9 +4,14 @@
 - Pull R4 data periodically to populate the local redcap database
 - Send out auto reminder for users to complete the survey in R4.
 
-### To be done
+### Known Issues
 - Since R4 is constantly changing, a better machanism is needed to report and monitor the change. Especially to avoid the errors like `ERROR:root:b'{"error":"The following fields were not found in the project as real data fields: your_or_your_childs_3"}'`
 - The file sync is not supported currently. 
+- If the field contain @CALC annotation, the sync might fail
+
+### To do list
+- automate project setup when R4 design is changed
+- send out error email if the sync failed
 
 ### How to use 
 1. Create API token and endpoint
