@@ -1,3 +1,4 @@
+import time
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 # Suppress the InsecureRequestWarning
@@ -159,7 +160,7 @@ def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = 
     if record_id is not None:
         data['records[0]'] = str(record_id)
     flag = 1
-    while(flag > 0 and flag < 5):
+    while(flag > 0 and flag < 5):   
         try:
             r = requests.post(api_endpoint,data=data, verify=False)
             if r.status_code == 200:
@@ -171,10 +172,12 @@ def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = 
                 logging.error('Error occured in exporting data from ' + api_endpoint)
                 logging.error('HTTP Status: ' + str(r.status_code))
                 logging.error(r.content)
-                flag = flag + 1
+                flag = 5
         except Exception as e:
             logging.error('Error occured in exporting data. ' + str(e))
-            flag = 5
+            # Sleep for 1 minutes
+            time.sleep(60)
+            flag = flag + 1
     return {}
 
 def export_survey_queue_link(record_id : str, api_key : str, api_endpoint: str) -> str:
