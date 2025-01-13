@@ -98,7 +98,7 @@ def read_api_config(config_file: str = './api_tokens.json') -> tuple:
     r4_api_endpoint = api_conf['r4_api_endpoint'] # R4 api endpoint
     return api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint
 
-def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = False, record_id = None) -> list:
+def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = False, record_id = None, filter_logic = None) -> list:
     '''
     Export data from REDCap using API
     Input: api_key: API token
@@ -159,6 +159,8 @@ def export_data_from_redcap(api_key : str, api_endpoint : str, id_only : bool = 
     
     if record_id is not None:
         data['records[0]'] = str(record_id)
+    if filter_logic is not None:
+        data['filterLogic'] = filter_logic
     flag = 1
     while(flag > 0 and flag < 5):   
         try:
@@ -461,14 +463,35 @@ if __name__ == "__main__":
         api_key_local, api_key_r4, cu_local_endpoint, r4_api_endpoint = read_api_config(config_file = token_file)
         ignore_fields = read_ignore_fields(ignore_file = ignore_file)
         local_fields = read_redcap_fields_from_record(api_key_local, cu_local_endpoint)
-        r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id)
-        logging.debug("DEBUG r4_data: ")
+        
+        # 2025-01-13 CT: R4 giving server out of memory exception. Splitting up data export into 2 batches
+        # Get IDs from local REDCap before exporting R4 data so that we can determine the midpoint record_id to split up R4 data export
+        local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)
+        if not local_data:
+            raise Exception("Error occurred during data export from local REDCap")
+        record_ids = list(set([int(r['record_id']) for r in local_data if r['record_id'] != '']))
+        record_id_mid = str(record_ids[round(len(record_ids) / 2)])
+        
+        if r4_id is None:
+            # Export data from R4 in 2 batches split up by the middle record_id
+            r4_data_1 = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id, filter_logic=f'[record_id] < "{record_id_mid}"')
+            if not r4_data_1:
+                raise Exception("Error occurred during data export from R4")
+            r4_data_2 = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id, filter_logic=f'[record_id] >= "{record_id_mid}"')
+            if not r4_data_2:
+                raise Exception("Error occurred during data export from R4")
+            r4_data = r4_data_1 + r4_data_2
+        else:    
+            r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id)
+        
+        # logging.debug("DEBUG r4_data: ")
         # logging.debug([e for e in r4_data if e['record_id']=='18697'])
-        if r4_data != []:
+        
+        if r4_data:
             r4_data_df = indexing_r4_data(r4_data)
             logging.debug("DEBUG r4_data_df: ")
             logging.debug(r4_data_df[r4_data_df['record_id']=='18697'])
-            local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)
+            # local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)  # 2025-01-13 CT: retrieve local data before R4 so that we can get split R4 data export by record_id
             local_data_df = indexing_local_data(local_data)
             current_mapping = match_r4_local_data(r4_data_df, local_data_df)
             logging.debug("DEBUG current_mapping: ")
@@ -518,7 +541,7 @@ if __name__ == "__main__":
         FROM_ADDR = "emerge_study@cumc.columbia.edu"
         msg = EmailMessage()
         msg['From'] = FROM_ADDR
-        msg['To'] = 'cl3720@cumc.columbia.edu'       
+        msg['To'] = 'cl3720@cumc.columbia.edu,ct2865@cumc.columbia.edu'       
         msg['Subject'] = '[Error] eMERGE Columbia Data Sync Service'
         body = 'Error occured in pulling data from R4. ' + str(e)
         msg.add_alternative(body,subtype='html')
