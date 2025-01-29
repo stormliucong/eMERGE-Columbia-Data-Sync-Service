@@ -469,18 +469,30 @@ if __name__ == "__main__":
         local_data = export_data_from_redcap(api_key_local,cu_local_endpoint, id_only=True)
         if not local_data:
             raise Exception("Error occurred during data export from local REDCap")
-        record_ids = list(set([int(r['record_id']) for r in local_data if r['record_id'] != '']))
-        record_id_mid = str(record_ids[round(len(record_ids) / 2)])
         
         if r4_id is None:
-            # Export data from R4 in 2 batches split up by the middle record_id
-            r4_data_1 = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id, filter_logic=f'[record_id] < "{record_id_mid}"')
-            if not r4_data_1:
+            # Export data from R4 in batches of 500 records
+            record_ids = list(set([int(r['record_id']) for r in local_data if r['record_id'] != '']))
+            record_ids.sort()
+            record_id_splits = record_ids[::500]
+            
+            r4_data = list()
+            for i in range(len(record_id_splits) - 1):
+                filter_logic=f'[record_id] >= {record_id_splits[i]} and [record_id] < {record_id_splits[i+1]}'
+                logging.info(f'Exporting R4 data for participants: {filter_logic}')
+                new_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id, filter_logic=filter_logic)
+                if not new_data:
+                    raise Exception("Error occurred during data export from R4")
+                logging.info(f'Received R4 data for {len(new_data)} records')
+                r4_data.extend(new_data)
+            filter_logic=f'[record_id] >= {record_id_splits[-1]}'
+            logging.info(f'Exporting R4 data for participants: {filter_logic}')
+            new_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id, filter_logic=filter_logic)
+            if not new_data:
                 raise Exception("Error occurred during data export from R4")
-            r4_data_2 = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id, filter_logic=f'[record_id] >= "{record_id_mid}"')
-            if not r4_data_2:
-                raise Exception("Error occurred during data export from R4")
-            r4_data = r4_data_1 + r4_data_2
+            logging.info(f'Received R4 data for {len(new_data)} records')
+            r4_data.extend(new_data)
+            logging.info(f'Received R4 data for a total of {len(r4_data)} records')
         else:    
             r4_data = export_data_from_redcap(api_key_r4,r4_api_endpoint, id_only=False, record_id=r4_id)
         
