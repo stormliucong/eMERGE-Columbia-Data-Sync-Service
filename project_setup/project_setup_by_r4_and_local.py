@@ -10,7 +10,7 @@ args = argparser.parse_args()
 if args.api_token_file:
     api_token_file = args.api_token_file
 else:
-    api_token_file = './api_tokens.json'
+    api_token_file = '../api_tokens.json'
 
 with open(api_token_file,'r') as f:
     api_conf = json.load(f)
@@ -43,8 +43,11 @@ meta_r4_json = r.json()
 print('HTTP Status: ' + str(r.status_code))
 
 # remove field already existing.
-meta_local_json_field_name_list = [i['field_name'] for i in meta_local_json]
+# ror patch
+forms_for_update = ['postror_adult','postror_child']
+meta_local_json_field_name_list = [i['field_name'] for i in meta_local_json if i['form_name'] not in forms_for_update]
 meta_r4_json_deduplicated = [i for i in meta_r4_json if i['field_name'] not in meta_local_json_field_name_list]
+meta_local_json = [i for i in meta_local_json if i['form_name'] not in forms_for_update]
 
 # new_json = []
 # form_name_current = ""
